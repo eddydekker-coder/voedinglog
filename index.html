@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Voeding">
+<meta name="theme-color" content="#16a34a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Voedinglog</title>
+<style>
+:root{--bg:#f6f7f4;--card:#fff;--ink:#1c2420;--mute:#6b7770;--line:#e3e8e2;--g:#16a34a;--gd:#0f7a37;--warn:#c2410c;--r:16px}
+@media(prefers-color-scheme:dark){:root{--bg:#101512;--card:#1a211d;--ink:#eaf1ec;--mute:#92a097;--line:#2a342e;--g:#22c55e;--gd:#4ade80;--warn:#fb923c}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,system-ui,sans-serif;padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+header{padding:calc(14px + env(safe-area-inset-top)) 16px 8px}
+h1{font-size:22px;margin:0}
+main{padding:0 16px 16px;max-width:560px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin:12px 0}
+.row{display:flex;gap:10px;align-items:center}.sp{justify-content:space-between}
+.mute{color:var(--mute);font-size:14px}
+button,.btn{font:inherit;border:0;border-radius:12px;padding:12px 16px;background:var(--g);color:#fff;font-weight:600;cursor:pointer}
+button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button.del{background:transparent;color:var(--warn);padding:6px 10px;font-weight:500}
+button:disabled{opacity:.5}
+input,select{font:inherit;width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+label{display:block;font-size:13px;color:var(--mute);margin:10px 0 4px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;color:var(--mute);border-radius:0;padding:12px 4px;font-size:13px}
+nav button.on{color:var(--gd)}
+.fab{position:fixed;right:18px;bottom:calc(78px + env(safe-area-inset-bottom));width:60px;height:60px;border-radius:30px;font-size:32px;padding:0;box-shadow:0 6px 18px #0004;z-index:5}
+.totals{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center}
+.totals b{display:block;font-size:20px}.totals span{font-size:12px;color:var(--mute)}
+.kcal{font-size:38px;font-weight:700}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:var(--g)}
+.item{padding:10px 0;border-top:1px solid var(--line)}.item:first-child{border-top:0}
+.sheet{position:fixed;inset:0;background:#0007;z-index:10;display:none;align-items:flex-end}
+.sheet.on{display:flex}
+.sheet>div{background:var(--bg);width:100%;max-height:92vh;overflow:auto;border-radius:20px 20px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom));max-width:560px;margin:0 auto}
+.tabs{display:flex;gap:8px;margin:8px 0}.tabs button{flex:1}
+.pill{display:inline-block;background:var(--line);border-radius:20px;padding:2px 10px;font-size:12px;color:var(--mute)}
+.spin{display:inline-block;width:16px;height:16px;border:3px solid #fff5;border-top-color:#fff;border-radius:50%;animation:s 1s linear infinite;vertical-align:-3px}
+@keyframes s{to{transform:rotate(360deg)}}
+.hide{display:none!important}
+footer{text-align:center;font-size:12px;color:var(--mute);padding:8px}
+</style>
+</head>
+<body>
+<header><h1 id="title">Vandaag</h1></header>
+<main id="main"></main>
+<button class="fab" id="fab" aria-label="Loggen">+</button>
+<nav>
+  <button data-t="day" class="on">Dagboek</button>
+  <button data-t="prod">Producten</button>
+  <button data-t="set">Instellingen</button>
+</nav>
+
+<div class="sheet" id="sheet"><div id="sheetbody"></div></div>
+<input type="file" id="cam" accept="image/*" capture="environment" class="hide">
+
+<script>
+"use strict";
+/* ---------- opslag ---------- */
+const K={prod:"vl_products",log:"vl_log",set:"vl_settings"};
+const load=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}};
+const save=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
+let products=load(K.prod,[]), log=load(K.log,[]), settings=load(K.set,{fn:"",token:"",shortcut:"Voeding naar Gezondheid",goal:2000});
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const num=v=>{const n=parseFloat(String(v).replace(",","."));return isFinite(n)?n:0};
+const r1=n=>Math.round(n*10)/10;
+const dkey=d=>{const x=new Date(d);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0")};
+let day=dkey(Date.now()), tab="day";
+
+/* ---------- berekening ---------- */
+const F=["kcal","fat","sat","carbs","sugar","fiber","protein","salt"];
+const FL={kcal:"Energie (kcal)",fat:"Vet (g)",sat:"waarvan verzadigd (g)",carbs:"Koolhydraten (g)",sugar:"waarvan suikers (g)",fiber:"Vezels (g)",protein:"Eiwit (g)",salt:"Zout (g)"};
+function baseAmount(p,amount,unit){ // in g of ml
+  if(unit==="portie")return amount*(p.portion||0);
+  if(unit==="l")return amount*1000;
+  return amount; // g of ml
+}
+function calc(p,base){
+  const f=base/100,o={};
+  F.forEach(k=>o[k]=r1((p.per100[k]||0)*f));
+  return o;
+}
+
+/* ---------- views ---------- */
+function render(){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.t===tab));
+  $("#fab").classList.toggle("hide",tab==="set");
+  if(tab==="day")viewDay();else if(tab==="prod")viewProd();else viewSet();
+}
+function viewDay(){
+  const items=log.filter(e=>dkey(e.ts)===day).sort((a,b)=>a.ts-b.ts);
+  const t={kcal:0,protein:0,carbs:0,fat:0};items.forEach(e=>{for(const k in t)t[k]+=e.n[k]||0});
+  const today=dkey(Date.now())===day;
+  const label=today?"Vandaag":new Date(day+"T12:00").toLocaleDateString("nl-NL",{weekday:"long",day:"numeric",month:"long"});
+  $("#title").textContent=label;
+  const pct=Math.min(100,t.kcal/(settings.goal||2000)*100);
+  const unsent=items.filter(e=>!e.sent).length;
+  $("#main").innerHTML=`
+  <div class="row sp"><button class="sec" id="prev">‹</button><span class="mute">${esc(day)}</span><button class="sec" id="next" ${today?"disabled":""}>›</button></div>
+  <div class="card">
+    <div class="kcal">${Math.round(t.kcal)} <span class="mute" style="font-size:16px;font-weight:400">kcal</span></div>
+    <div class="bar"><i style="width:${pct}%"></i></div>
+    <div class="totals" style="margin-top:12px">
+      <div><b>${r1(t.protein)}</b><span>eiwit g</span></div>
+      <div><b>${r1(t.carbs)}</b><span>koolh. g</span></div>
+      <div><b>${r1(t.fat)}</b><span>vet g</span></div>
+      <div><b>${Math.round(settings.goal||2000)}</b><span>doel kcal</span></div>
+    </div>
+  </div>
+  <div class="card">
+    ${items.length?items.map(e=>`<div class="item"><div class="row sp"><div><b>${esc(e.name)}</b>
+      <div class="mute">${esc(e.label)} · ${Math.round(e.n.kcal)} kcal · ${new Date(e.ts).toLocaleTimeString("nl-NL",{hour:"2-digit",minute:"2-digit"})} ${e.sent?'<span class="pill">naar Gezondheid</span>':""}</div></div>
+      <button class="del" data-del="${e.id}">Wis</button></div></div>`).join(""):'<div class="mute">Nog niets gelogd. Tik op + om te beginnen.</div>'}
+  </div>
+  ${items.length?`<button style="width:100%" id="health">${unsent?`Stuur ${unsent} ${unsent===1?"item":"items"} naar Apple Gezondheid`:"Alles verstuurd. Opnieuw sturen"}</button>
+  <p class="mute">Opent de Opdrachten-app, die de waarden in Apple Gezondheid zet.</p>`:""}`;
+  $("#prev").onclick=()=>{const d=new Date(day+"T12:00");d.setDate(d.getDate()-1);day=dkey(d);render()};
+  $("#next").onclick=()=>{const d=new Date(day+"T12:00");d.setDate(d.getDate()+1);day=dkey(d);render()};
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{if(confirm("Deze invoer verwijderen? (Apple Gezondheid wordt niet aangepast.)")){log=log.filter(e=>e.id!==b.dataset.del);save(K.log,log);render()}});
+  const h=$("#health");if(h)h.onclick=()=>sendHealth(unsent?items.filter(e=>!e.sent):items);
+}
+function viewProd(){
+  $("#title").textContent="Producten";
+  $("#main").innerHTML=`<div class="card">${products.length?products.sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<div class="item row sp"><div><b>${esc(p.name)}</b>
+  <div class="mute">${p.per100.kcal} kcal per 100 ${p.basis}${p.portion?` · portie ${p.portion} ${p.basis}`:""}</div></div>
+  <div><button class="sec" data-e="${p.id}">Wijzig</button></div></div>`).join(""):'<div class="mute">Nog geen producten. Maak een foto van een etiket via +.</div>'}</div>`;
+  document.querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>productForm(products.find(p=>p.id===b.dataset.e),null));
+}
+function viewSet(){
+  $("#title").textContent="Instellingen";
+  $("#main").innerHTML=`
+  <div class="card"><b>Etiket uitlezen</b>
+    <label>Supabase-functie URL</label><input id="s_fn" placeholder="https://xxxx.supabase.co/functions/v1/scan-label" value="${esc(settings.fn)}">
+    <label>App-token</label><input id="s_tok" type="password" value="${esc(settings.token)}">
+  </div>
+  <div class="card"><b>Apple Gezondheid</b>
+    <label>Naam van je Opdracht</label><input id="s_sc" value="${esc(settings.shortcut)}">
+  </div>
+  <div class="card"><b>Dagdoel</b>
+    <label>Calorieën per dag</label><input id="s_goal" inputmode="numeric" value="${esc(settings.goal)}">
+  </div>
+  <button style="width:100%" id="s_save">Opslaan</button>
+  <div class="card"><b>Back-up</b>
+    <p class="mute">Alles staat alleen op dit apparaat. Maak af en toe een back-up.</p>
+    <div class="row"><button class="sec" id="exp">Exporteer</button><button class="sec" id="imp">Importeer</button></div>
+  </div>
+  <footer>Eigendom van Eddy Dekker</footer>`;
+  $("#s_save").onclick=()=>{settings={fn:$("#s_fn").value.trim(),token:$("#s_tok").value.trim(),shortcut:$("#s_sc").value.trim()||"Voeding naar Gezondheid",goal:num($("#s_goal").value)||2000};save(K.set,settings);alert("Opgeslagen")};
+  $("#exp").onclick=()=>{const b=new Blob([JSON.stringify({products,log})],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="voedinglog-backup-"+dkey(Date.now())+".json";a.click()};
+  $("#imp").onclick=()=>{const i=document.createElement("input");i.type="file";i.accept="application/json";i.onchange=async()=>{try{const d=JSON.parse(await i.files[0].text());if(!confirm("Huidige gegevens vervangen door de back-up?"))return;products=d.products||[];log=d.log||[];save(K.prod,products);save(K.log,log);render()}catch{alert("Ongeldig bestand")}};i.click()};
+}
+
+/* ---------- sheet ---------- */
+const sheet=$("#sheet"),sb=$("#sheetbody");
+const open=h=>{sb.innerHTML=h;sheet.classList.add("on")};
+const close=()=>sheet.classList.remove("on");
+sheet.addEventListener("click",e=>{if(e.target===sheet)close()});
+
+function startMenu(){
+  open(`<h2 style="margin:0 0 8px">Wat heb je gehad?</h2>
+  <button style="width:100%;margin:6px 0" id="m_scan">📷 Foto van voedingswaarden</button>
+  ${products.length?`<label>Of kies een bekend product</label><input id="m_q" placeholder="Zoek…" autocomplete="off"><div id="m_list"></div>`:""}
+  <button class="sec" style="width:100%;margin-top:10px" id="m_man">Handmatig invullen</button>
+  <button class="sec" style="width:100%;margin-top:10px" id="m_x">Annuleer</button>`);
+  $("#m_scan").onclick=()=>$("#cam").click();
+  $("#m_man").onclick=()=>productForm(null,"log");
+  $("#m_x").onclick=close;
+  const q=$("#m_q");
+  if(q){const draw=()=>{const s=q.value.toLowerCase();$("#m_list").innerHTML=products.filter(p=>p.name.toLowerCase().includes(s)).slice(0,30).map(p=>`<div class="item"><button class="sec" style="width:100%;text-align:left" data-p="${p.id}">${esc(p.name)} <span class="mute">${p.per100.kcal} kcal/100${p.basis}</span></button></div>`).join("");
+    document.querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>amountForm(products.find(p=>p.id===b.dataset.p)))};q.oninput=draw;draw()}
+}
+
+function productForm(p,then,prefill){
+  const d=p||prefill||{name:"",basis:"g",portion:"",per100:{}};
+  const per=d.per100||{};
+  open(`<h2 style="margin:0 0 4px">${p?"Product wijzigen":"Product"}</h2>
+  ${prefill?'<p class="mute">Uitgelezen van de foto. Controleer de waarden even.</p>':""}
+  <label>Naam</label><input id="f_name" value="${esc(d.name)}">
+  <div class="grid"><div><label>Waarden per 100…</label><select id="f_basis"><option value="g">gram</option><option value="ml">milliliter</option></select></div>
+  <div><label>Portie (g of ml, optioneel)</label><input id="f_portion" inputmode="decimal" value="${esc(d.portion||"")}"></div></div>
+  <div class="grid">${F.map(k=>`<div><label>${FL[k]}</label><input data-k="${k}" inputmode="decimal" value="${per[k]??""}"></div>`).join("")}</div>
+  <div class="row" style="margin-top:14px"><button class="sec" id="f_x">Annuleer</button><button id="f_ok" style="flex:1">Opslaan</button></div>
+  ${p?'<button class="del" id="f_del" style="margin-top:6px">Product verwijderen</button>':""}`);
+  $("#f_basis").value=d.basis||"g";
+  $("#f_x").onclick=close;
+  if(p)$("#f_del").onclick=()=>{if(confirm("Product verwijderen? Eerdere invoer blijft staan.")){products=products.filter(x=>x.id!==p.id);save(K.prod,products);close();render()}};
+  $("#f_ok").onclick=()=>{
+    const name=$("#f_name").value.trim();if(!name){alert("Geef het product een naam");return}
+    const per100={};document.querySelectorAll("[data-k]").forEach(i=>per100[i.dataset.k]=num(i.value));
+    const np={id:p?p.id:uid(),name,basis:$("#f_basis").value,portion:num($("#f_portion").value)||0,per100};
+    if(p)products=products.map(x=>x.id===p.id?np:x);else products.push(np);
+    save(K.prod,products);
+    if(then==="log"||prefill)amountForm(np);else{close();render()}
+  };
+}
+
+function amountForm(p){
+  const units=[];if(p.portion)units.push(["portie","portie(s)"]);units.push([p.basis==="ml"?"ml":"g",p.basis==="ml"?"milliliter":"gram"]);if(p.basis==="ml")units.push(["l","liter"]);
+  open(`<h2 style="margin:0 0 4px">${esc(p.name)}</h2>
+  <div class="mute">${p.per100.kcal} kcal per 100 ${p.basis}${p.portion?` · 1 portie = ${p.portion} ${p.basis}`:""}</div>
+  <div class="grid"><div><label>Hoeveel</label><input id="a_n" inputmode="decimal" value="${p.portion?1:""}" autofocus></div>
+  <div><label>Eenheid</label><select id="a_u">${units.map(u=>`<option value="${u[0]}">${u[1]}</option>`).join("")}</select></div></div>
+  <div class="card" id="a_prev" style="margin-top:14px"></div>
+  <div class="row"><button class="sec" id="a_x">Annuleer</button><button id="a_ok" style="flex:1">Loggen</button></div>
+  <button class="sec" id="a_edit" style="margin-top:8px;width:100%">Productwaarden wijzigen</button>`);
+  const upd=()=>{const n=num($("#a_n").value),u=$("#a_u").value;const b=baseAmount(p,n,u);const c=calc(p,b);
+    $("#a_prev").innerHTML=`<b>${Math.round(c.kcal)} kcal</b> <span class="mute">· ${c.protein} g eiwit · ${c.carbs} g koolh. · ${c.fat} g vet</span>`};
+  $("#a_n").oninput=upd;$("#a_u").onchange=upd;upd();
+  $("#a_x").onclick=close;
+  $("#a_edit").onclick=()=>productForm(p,"log");
+  $("#a_ok").onclick=()=>{
+    const n=num($("#a_n").value),u=$("#a_u").value;if(n<=0){alert("Vul een hoeveelheid in");return}
+    const b=baseAmount(p,n,u);
+    const lab=u==="portie"?`${n} ${n===1?"portie":"porties"} (${r1(b)} ${p.basis})`:`${n} ${u==="l"?"liter":u}`;
+    log.push({id:uid(),ts:day===dkey(Date.now())?Date.now():new Date(day+"T12:00").getTime(),pid:p.id,name:p.name,label:lab,n:calc(p,b),sent:false});
+    save(K.log,log);close();render();
+  };
+}
+
+/* ---------- foto ---------- */
+$("#cam").onchange=async e=>{
+  const f=e.target.files[0];e.target.value="";if(!f)return;
+  if(!settings.fn||!settings.token){alert("Vul eerst bij Instellingen de functie-URL en het token in.");close();tab="set";render();return}
+  open(`<h2>Etiket lezen…</h2><p class="mute"><span class="spin" style="border-color:#0003;border-top-color:var(--g)"></span> Even geduld, dit duurt een paar seconden.</p>`);
+  try{
+    const img=await shrink(f,1600);
+    const r=await fetch(settings.fn,{method:"POST",headers:{"content-type":"application/json","x-app-token":settings.token},body:JSON.stringify({image:img.split(",")[1],media_type:"image/jpeg"})});
+    const j=await r.json();
+    if(!r.ok||j.error)throw new Error(j.error||("Fout "+r.status));
+    productForm(null,"log",{name:j.name||"",basis:j.basis==="ml"?"ml":"g",portion:j.portion||"",per100:j.per100||{}});
+  }catch(err){open(`<h2>Mislukt</h2><p>${esc(err.message)}</p><button style="width:100%" id="e_man">Handmatig invullen</button><button class="sec" style="width:100%;margin-top:8px" id="e_x">Sluiten</button>`);
+    $("#e_man").onclick=()=>productForm(null,"log");$("#e_x").onclick=close}
+};
+function shrink(file,max){return new Promise((res,rej)=>{const im=new Image();im.onload=()=>{const s=Math.min(1,max/Math.max(im.width,im.height));const c=document.createElement("canvas");c.width=im.width*s;c.height=im.height*s;c.getContext("2d").drawImage(im,0,0,c.width,c.height);res(c.toDataURL("image/jpeg",.85))};im.onerror=()=>rej(new Error("Foto kon niet worden gelezen"));im.src=URL.createObjectURL(file)})}
+
+/* ---------- Apple Gezondheid via Opdrachten ---------- */
+function sendHealth(items){
+  const data=items.map(e=>({datum:new Date(e.ts).toISOString(),naam:e.name,kcal:e.n.kcal,eiwit:e.n.protein,koolhydraten:e.n.carbs,suikers:e.n.sugar,vet:e.n.fat,verzadigd:e.n.sat,vezels:e.n.fiber,natrium_mg:Math.round(e.n.salt*400)}));
+  const url="shortcuts://run-shortcut?name="+encodeURIComponent(settings.shortcut)+"&input=text&text="+encodeURIComponent(JSON.stringify(data));
+  const ids=new Set(items.map(e=>e.id));
+  log.forEach(e=>{if(ids.has(e.id))e.sent=true});save(K.log,log);
+  location.href=url;
+  setTimeout(render,600);
+}
+
+/* ---------- start ---------- */
+$("#fab").onclick=startMenu;
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{tab=b.dataset.t;render()});
+if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
+render();
+</script>
+</body>
+</html>
